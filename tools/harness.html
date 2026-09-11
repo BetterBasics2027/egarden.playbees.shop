@@ -1,0 +1,30 @@
+<!doctype html><meta charset="utf-8"><title>harness</title>
+<style>html,body{margin:0;background:#888}iframe{border:0;display:block;background:#fff}</style>
+<iframe id="f"></iframe>
+<script>
+const q=new URLSearchParams(location.search);const w=+q.get('w')||390,h=+q.get('h')||844,state=q.get('state')||'top',view=q.get('view')||'';
+const f=document.getElementById('f');f.width=w;f.height=h;
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+f.onload=async()=>{const d=f.contentDocument,W=f.contentWindow;W.localStorage.clear();d.documentElement.style.scrollBehavior='auto';
+  const $=s=>d.querySelector(s);const click=s=>{const e=$(s);if(e)e.click();else console.log('missing',s)};
+  await sleep(1500);
+  if(view==='list')click('#vlist');
+  const scrollTo=s=>{const e=$(s);if(e)W.scrollTo(0,e.getBoundingClientRect().top+W.scrollY-125)};
+  const add=()=>{click('[data-add="PB141"]');click('[data-add="PB409"]');click('[data-add="squishy-ducky"]');click('[data-step="PB141"] [data-inc]');click('[data-step="PB141"] [data-inc]')};
+  switch(state){
+    case 'grid': scrollTo('#cat-squishy-foods'); break;
+    case 'added': add(); scrollTo('#cat-squishy-foods'); break;
+    case 'sheet': add(); click('[data-open="PB377"]'); break;
+    case 'cart': add(); click('#cartbtn'); break;
+    case 'cartform': add(); click('#cartbtn'); await sleep(400); $('#dbody').scrollTop=9999; break;
+    case 'validate': add(); click('#cartbtn'); await sleep(400); $('#dbody').scrollTop=9999; click('#send'); break;
+    case 'list': add(); scrollTo('#cat-stress-cubes'); break;
+    case 'search': $('#q').value='duck'; $('#q').dispatchEvent(new Event('input')); await sleep(400); scrollTo('#toolbar'); break;
+    case 'footer': W.scrollTo(0,d.body.scrollHeight); break;
+    case 'toys': scrollTo('#cat-toys-games-party-favors'); break;
+  }
+  await sleep(700);
+  document.title='ready:'+state+':'+d.querySelectorAll('.card, .list tr[data-id]').length+':'+($('#cartcount')||{}).textContent;
+};
+f.src='../index.html';
+</script>
