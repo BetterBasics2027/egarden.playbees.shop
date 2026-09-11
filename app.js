@@ -3,7 +3,7 @@
   "use strict";
   const CFG = window.EG_CONFIG || {};
   const CONTACT = CFG.CONTACT || {};
-  const LS_CART = "eg.cart.v1", LS_FORM = "eg.form.v1", LS_VIEW = "eg.view.v1";
+  const LS_CART = "eg.cart.v1", LS_FORM = "eg.form.v1", LS_VIEW = "eg.view.v1", LS_OUTBOX = "eg.outbox.v1";
 
   const $ = (s, r) => (r || document).querySelector(s);
   const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
@@ -53,6 +53,7 @@
     render();
     syncCart();
     wire();
+    flushOutbox();
   }
 
   // ---------------------------------------------------------------- render catalog
@@ -214,8 +215,7 @@
       return;
     }
     body.innerHTML = '<div id="lines">' + ids.map((id) => lineHtml(BY[id])).join("") + "</div>" + totHtml(t) + formHtml();
-    foot.innerHTML = '<button class="send" id="send"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="m22 2-7 20-4-9-9-4z"/></svg>Send order request</button><div class="msg" id="sendmsg">' +
-      (CFG.ORDER_ENDPOINT ? "Goes straight to " + esc(CONTACT.name || "our sales team") + ". No payment now; we confirm by email." : "Opens an email to " + esc(CONTACT.email || "our sales team") + " with your list filled in.") + "</div>";
+    foot.innerHTML = '<button class="send" id="send"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="m22 2-7 20-4-9-9-4z"/></svg>Submit order request</button><div class="msg" id="sendmsg">Goes straight to ' + esc(CONTACT.name || "our sales team") + ". No payment now; we confirm with you by email.</div>";
   }
 
   function lineHtml(i) {
@@ -246,7 +246,7 @@
 
   function doneHtml(s) {
     if (s.mode === "sent") return '<div class="done"><div class="big">🎉</div><h3>Request sent!</h3><div class="ref">' + esc(s.ref) + "</div><p>" + esc(CONTACT.name || "We") + " will confirm by email at " + esc(s.email) + '.</p><button class="ghost" id="d-browse">Keep browsing</button></div>';
-    if (s.mode === "mail") return '<div class="done"><div class="big">✉️</div><h3>Email drafted</h3><div class="ref">' + esc(s.ref) + '</div><p>Your email app should have opened with the order filled in. If it did not, tap the button.</p><a class="mail" href="' + esc(s.href) + '">Open the email</a><br><button class="ghost" id="d-browse">Keep browsing</button></div>';
+    if (s.mode === "queued") return '<div class="done"><div class="big">📶</div><h3>Saved on this phone</h3><div class="ref">' + esc(s.ref) + '</div><p>No signal right now. Your request is saved and will send itself as soon as this page is back online. Keep the tab open, or reopen this site later.</p><a class="mail" href="#" id="d-retry">Try sending now</a><br><button class="ghost" id="d-browse">Keep browsing</button></div>';
     return "";
   }
 
@@ -282,36 +282,54 @@
       lines, items: t.lines, packs: t.packs, subtotal: +t.sub.toFixed(2), onRequestLines: t.req, userAgent: navigator.userAgent };
   }
 
-  function mailtoHref(p) {
-    const body = ["Order request " + p.ref + " (" + p.site + ")", "", "Name: " + p.name, "Company: " + p.company, "Email: " + p.email, "Phone: " + p.phone, "", "ITEMS (quantity in packs)"]
-      .concat(p.lines.map((l) => (l.uid + " " + l.name + " (" + l.spec + ") × " + l.packs + (l.onRequest ? " — price on request" : " @ " + money(l.packPrice) + " = " + money(l.lineTotal)))))
-      .concat(["", "Subtotal: " + money(p.subtotal) + (p.onRequestLines ? " + " + p.onRequestLines + " item(s) on request" : ""), "", "Notes: " + (p.notes || "-")]).join("\n");
-    return "mailto:" + encodeURIComponent(CONTACT.email || "") + "?subject=" + encodeURIComponent("Order request " + p.ref + " – " + p.company) + "&body=" + encodeURIComponent(body);
-  }
-
-  async function send() {
-    if (sending || !validate()) return;
-    const ref = makeRef(), p = payload(ref), btn = $("#send"), msg = $("#sendmsg");
-    if (!CFG.ORDER_ENDPOINT) {
-      const href = mailtoHref(p);
-      location.href = href;
-      finish({ mode: "mail", ref, href });
-      return;
-    }
-    sending = true; btn.disabled = true; btn.classList.add("busy"); btn.textContent = "Sending…"; msg.classList.remove("err"); msg.textContent = "";
+  // ---------------------------------------------------------------- sending + offline outbox
+  async function post(p) {
     const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 25000);
     try {
       const r = await fetch(CFG.ORDER_ENDPOINT, { method: "POST", body: JSON.stringify(p), redirect: "follow", signal: ctl.signal });
       const j = await r.json();
       if (!j || !j.ok) throw new Error((j && j.error) || "server said no");
-      finish({ mode: "sent", ref: j.ref || ref, email: p.email });
-    } catch (e) {
-      console.error(e);
-      msg.classList.add("err");
-      msg.innerHTML = "Could not reach our order inbox (bad signal?). <a href=\"" + esc(mailtoHref(p)) + "\">Send it by email instead</a> or try again.";
-      btn.disabled = false; btn.classList.remove("busy"); btn.innerHTML = "Try again";
-    } finally { clearTimeout(tm); sending = false; }
+      return j.ref || p.ref;
+    } finally { clearTimeout(tm); }
   }
+
+  async function send() {
+    if (sending || !validate()) return;
+    const ref = makeRef(), p = payload(ref), btn = $("#send"), msg = $("#sendmsg");
+    sending = true; btn.disabled = true; btn.classList.add("busy"); btn.textContent = "Sending…"; msg.classList.remove("err"); msg.textContent = "";
+    try {
+      if (!CFG.ORDER_ENDPOINT) throw new Error("no endpoint configured");
+      const got = await post(p);
+      finish({ mode: "sent", ref: got, email: p.email });
+    } catch (err) {
+      console.error(err);
+      // Save it and retry automatically; the buyer never has to do anything else.
+      const box = lsGet(LS_OUTBOX, []); box.push(p); lsSet(LS_OUTBOX, box);
+      finish({ mode: "queued", ref, email: p.email });
+      scheduleFlush();
+    } finally { sending = false; }
+  }
+
+  let flushing = false, flushTimer;
+  async function flushOutbox() {
+    if (flushing || !CFG.ORDER_ENDPOINT) return;
+    const box = lsGet(LS_OUTBOX, []);
+    if (!box.length) return;
+    flushing = true;
+    try {
+      while (box.length) {
+        const p = box[0];
+        const got = await post(p);            // throws → stop, keep the rest for later
+        box.shift(); lsSet(LS_OUTBOX, box);
+        toast("Order request " + got + " sent");
+        if (doneState && doneState.mode === "queued" && doneState.ref === p.ref) { doneState = { mode: "sent", ref: got, email: p.email }; if ($("#drawer").classList.contains("show")) renderDrawer(); }
+      }
+    } catch (err) { console.warn("outbox retry failed", err); scheduleFlush(); }
+    finally { flushing = false; }
+  }
+  function scheduleFlush() { clearTimeout(flushTimer); if (lsGet(LS_OUTBOX, []).length) flushTimer = setTimeout(flushOutbox, 45000); }
+  window.addEventListener("online", flushOutbox);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) flushOutbox(); });
 
   function finish(s) {
     doneState = s;
@@ -374,6 +392,7 @@
       if (t.dataset.open !== undefined) { if (!$("#drawer").classList.contains("show")) openSheet(t.dataset.open); return; }
       if (t.id === "send") { send(); return; }
       if (t.id === "d-browse") { hideAll(); return; }
+      if (t.id === "d-retry") { e.preventDefault(); t.textContent = "Sending…"; flushOutbox().then(() => { if (lsGet(LS_OUTBOX, []).length) t.textContent = "Still no signal, try again"; }); return; }
     });
 
     document.addEventListener("change", (e) => {

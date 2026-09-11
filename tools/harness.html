@@ -21,6 +21,7 @@ f.onload=async()=>{const d=f.contentDocument,W=f.contentWindow;W.localStorage.cl
     case 'list': add(); scrollTo('#cat-stress-cubes'); break;
     case 'search': $('#q').value='duck'; $('#q').dispatchEvent(new Event('input')); await sleep(400); scrollTo('#toolbar'); break;
     case 'send': add(); click('#cartbtn'); await sleep(400); const set=(s,v)=>{const e=$(s);e.value=v;e.dispatchEvent(new Event('input'))}; set('#f-name','TEST browser'); set('#f-company','TEST Store (ignore)'); set('#f-email','test@example.com'); set('#f-phone','555-0100'); set('#f-notes','automated browser test from tools/harness.html'); click('#send'); await sleep(6000); break;
+    case 'sendfail': W.EG_CONFIG.ORDER_ENDPOINT='https://127.0.0.1:1/nothing'; add(); click('#cartbtn'); await sleep(400); const set2=(s,v)=>{const e=$(s);e.value=v;e.dispatchEvent(new Event('input'))}; set2('#f-name','TEST offline'); set2('#f-company','TEST Store (ignore)'); set2('#f-email','test@example.com'); click('#send'); await sleep(3000); break;
     case 'footer': W.scrollTo(0,d.body.scrollHeight); break;
     case 'toys': scrollTo('#cat-toys-games-party-favors'); break;
   }

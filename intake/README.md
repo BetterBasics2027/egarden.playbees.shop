@@ -22,4 +22,5 @@ Notes
 - The `Reply-To` on the notification email is the buyer, so replying goes to them.
 - To change recipients later: edit `RECIPIENTS`, then **Deploy → Manage deployments → Edit →
   Version: New** so the change goes live (editing the code alone does not update a deployment).
-- Until the URL is set, the Send button opens an email draft to Zolly instead; nothing is lost.
+- If a phone has no signal when the buyer taps Submit, the request is saved on the phone and
+  re-sent automatically when the page is back online (the script ignores a repeated Ref).

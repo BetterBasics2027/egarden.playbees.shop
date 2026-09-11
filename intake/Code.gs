@@ -26,6 +26,7 @@ function doPost(e) {
     var lines = sheet_(ss, "Lines", ["Received", "Ref", "Company", "UID", "Product", "Spec", "Category", "Packs", "Pack price", "Line total", "On request"]);
 
     var ref = String(p.ref || "").trim() || nextRef_();
+    if (alreadyLogged_(orders, ref)) return json_({ ok: true, ref: ref, duplicate: true });
     var now = new Date();
     var itemText = p.lines.map(function (l) {
       return l.uid + " " + l.name + " (" + l.spec + ") x " + l.packs + (l.onRequest ? " - price on request" : " @ $" + num_(l.packPrice).toFixed(2) + " = $" + num_(l.lineTotal).toFixed(2));
@@ -71,6 +72,14 @@ function notify_(p, ref, itemText, sheetUrl) {
   var opts = { name: "eGarden catalog" };
   if (p.email && /@/.test(p.email)) opts.replyTo = p.email;
   MailApp.sendEmail(RECIPIENTS.join(","), subject, body, opts);
+}
+
+function alreadyLogged_(orders, ref) {
+  var last = orders.getLastRow();
+  if (last < 2) return false;
+  var refs = orders.getRange(2, 2, last - 1, 1).getValues();
+  for (var i = 0; i < refs.length; i++) if (String(refs[i][0]) === ref) return true;
+  return false;
 }
 
 function sheet_(ss, name, header) {
