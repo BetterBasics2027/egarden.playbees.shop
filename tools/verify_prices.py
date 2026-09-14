@@ -28,8 +28,8 @@ if len(data["categories"]) != 8:
 for c in data["categories"]:
     if EXPECT_COUNTS.get(c["name"]) != c["count"]:
         errors.append(f"{c['name']}: {c['count']} != {EXPECT_COUNTS.get(c['name'])}")
-if sum(i["onRequest"] for i in items) != 6:
-    errors.append("on-request count != 6")
+if sum(i["onRequest"] for i in items) != 0:
+    errors.append("on-request count != 0 (all six were priced 2026-09-14)")
 for i in items:
     if not os.path.exists(os.path.join(ROOT, i["image"])):
         errors.append(f"missing image {i['image']}")
