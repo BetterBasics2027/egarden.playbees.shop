@@ -75,7 +75,9 @@
   function applyBrand() {
     const b = BRAND;
     document.body.dataset.theme = b.id;
-    document.title = b.name + " Wholesale Catalog";
+    const title = b.title || "Wholesale Catalog";
+    $("#htitle").textContent = title;
+    document.title = b.name + " " + title;
     $$("#herobrands button").forEach((el) => el.setAttribute("aria-pressed", el.dataset.brand === b.id));
     $("#toplogo-img").src = b.logo; $("#toplogo-img").alt = b.name;
     $("#subtitle").textContent = b.subtitle || "";

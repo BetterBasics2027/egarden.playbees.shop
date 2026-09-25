@@ -266,3 +266,5 @@ footer .brand{margin-top:16px;font-size:10px;font-weight:800;letter-spacing:.3em
 .toast.show{opacity:1;transform:translate(-50%,0)}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
 @media print{.top,.toolbar,.bottombar,.drawer,.scrim,.sheet,.hero .how,.act{display:none!important}main{padding-bottom:0}}
+
+.hero h1{font-size:clamp(30px,6.4vw,48px);max-width:720px;margin-left:auto;margin-right:auto;text-wrap:balance}
