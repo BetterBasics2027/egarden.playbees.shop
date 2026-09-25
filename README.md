@@ -1,14 +1,15 @@
 # egarden.playbees.shop
 
-Interactive wholesale catalog for Playbees (eGarden Division), built from the printed
-**Playbees Wholesale Catalog 2027**. Static site on GitHub Pages; no build step.
+Playbees and KiddyDoo wholesale catalogs: a phone-first price list with an order-request cart and a
+downloadable PDF per brand. Static site on GitHub Pages; no build step here.
 
-- `tools/extract_catalog.py` — regenerates `data/catalog.json`, `img/`, `fonts/` from the
-  source HTML in Downloads. Re-run after the printed catalog changes, then `verify_prices.py`.
-- `tools/verify_prices.py` — asserts the site's prices and counts match the PDF.
+This repo is the published output only. The catalog data, photos and PDFs are generated elsewhere and
+copied in; edit the source project, rebuild, then copy the site files here and bump `?v=N` in
+`index.html`.
+
 - `intake/` — Google Apps Script that turns order requests into Sheet rows + email.
 - `config.js` — order endpoint URL and contact block.
+- `tools/harness.html` — phone-frame preview for screenshots (never submits an order).
 
-Custom domain: the CNAME is set through the Pages API once the GoDaddy record
-`egarden CNAME betterbasics2027.github.io` exists (a CNAME file committed earlier would
-redirect the github.io preview to a domain that does not resolve yet).
+The 67-item Toy Preview show catalog that lived here before 2026-09-25 is tagged
+`show-catalog-2026-09-14`.

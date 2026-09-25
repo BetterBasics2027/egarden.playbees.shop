@@ -1,31 +1,34 @@
 <!doctype html><meta charset="utf-8"><title>harness</title>
+<!-- Phone-frame preview for headless screenshots: tools/harness.html?state=<name>&w=390&h=844&view=list
+     No state here submits an order: a real send writes to the live order sheet and emails sales. -->
 <style>html,body{margin:0;background:#888}iframe{border:0;display:block;background:#fff}</style>
 <iframe id="f"></iframe>
 <script>
 const q=new URLSearchParams(location.search);const w=+q.get('w')||390,h=+q.get('h')||844,state=q.get('state')||'top',view=q.get('view')||'';
 const f=document.getElementById('f');f.width=w;f.height=h;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
-f.onload=async()=>{const d=f.contentDocument,W=f.contentWindow;W.localStorage.clear();d.documentElement.style.scrollBehavior='auto';
+f.onload=async()=>{const d=f.contentDocument,W=f.contentWindow;W.localStorage.clear();d.documentElement.style.scrollBehavior='auto';const st=d.createElement('style');st.textContent='*{transition:none!important;animation:none!important}';d.head.appendChild(st);
+  W.EG_CONFIG.ORDER_ENDPOINT='https://127.0.0.1:1/never-send-from-harness';
   const $=s=>d.querySelector(s);const click=s=>{const e=$(s);if(e)e.click();else console.log('missing',s)};
   await sleep(1500);
   if(view==='list')click('#vlist');
-  const scrollTo=s=>{const e=$(s);if(e)W.scrollTo(0,e.getBoundingClientRect().top+W.scrollY-125)};
-  const add=()=>{click('[data-add="PB141"]');click('[data-add="PB409"]');click('[data-add="squishy-ducky"]');click('[data-step="PB141"] [data-inc]');click('[data-step="PB141"] [data-inc]')};
+  const scrollTo=s=>{const e=$(s);if(e)W.scrollTo(0,e.getBoundingClientRect().top+W.scrollY-(+q.get('off')||175))};
+  const add=async()=>{click('[data-add="PB141"]');click('[data-add="PB019"]');click('[data-step="PB141"] [data-inc]');click('[data-step="PB141"] [data-inc]');click('#herobrands [data-brand="kiddydoo"]');await sleep(200);click('[data-add="PB399"]');click('#herobrands [data-brand="playbees"]');await sleep(200)};
   switch(state){
-    case 'grid': scrollTo('#cat-squishy-foods'); break;
-    case 'added': add(); scrollTo('#cat-squishy-foods'); break;
-    case 'sheet': add(); click('[data-open="PB377"]'); break;
-    case 'cart': add(); click('#cartbtn'); break;
+    case 'grid': scrollTo('#cat-'+(q.get('cat')||'squishy')); break;
+    case 'added': add(); scrollTo('#cat-squishy'); break;
+    case 'sheet': await add(); click('[data-open="'+(q.get('id')||'PB420')+'"]'); break;
+    case 'cart': await add(); click('#cartbtn'); break;
     case 'cartform': add(); click('#cartbtn'); await sleep(400); $('#dbody').scrollTop=9999; break;
     case 'validate': add(); click('#cartbtn'); await sleep(400); $('#dbody').scrollTop=9999; click('#send'); break;
-    case 'list': add(); scrollTo('#cat-stress-cubes'); break;
-    case 'search': $('#q').value='duck'; $('#q').dispatchEvent(new Event('input')); await sleep(400); scrollTo('#toolbar'); break;
-    case 'send': add(); click('#cartbtn'); await sleep(400); const set=(s,v)=>{const e=$(s);e.value=v;e.dispatchEvent(new Event('input'))}; set('#f-name','TEST browser'); set('#f-company','TEST Store (ignore)'); set('#f-email','test@example.com'); set('#f-phone','555-0100'); set('#f-notes','automated browser test from tools/harness.html'); click('#send'); await sleep(6000); break;
-    case 'sendfail': W.EG_CONFIG.ORDER_ENDPOINT='https://127.0.0.1:1/nothing'; add(); click('#cartbtn'); await sleep(400); const set2=(s,v)=>{const e=$(s);e.value=v;e.dispatchEvent(new Event('input'))}; set2('#f-name','TEST offline'); set2('#f-company','TEST Store (ignore)'); set2('#f-email','test@example.com'); click('#send'); await sleep(3000); break;
+    case 'list': add(); scrollTo('#cat-'+(q.get('cat')||'games')); break;
+    case 'search': if(q.get('b'))click('#herobrands [data-brand="'+q.get('b')+'"]'); await sleep(300); $('#q').value=q.get('q')||'duck'; $('#q').dispatchEvent(new Event('input')); await sleep(400); scrollTo('#toolbar'); break;
+    case 'brand': click('#herobrands [data-brand="'+(q.get('b')||'kiddydoo')+'"]'); await sleep(400); if(q.get('cat'))scrollTo('#cat-'+q.get('cat')); break;
+    case 'nophoto': scrollTo('[data-id="'+(q.get('id')||'PB374')+'"]'); break;
+    case 'sendfail': add(); click('#cartbtn'); await sleep(400); const set2=(s,v)=>{const e=$(s);e.value=v;e.dispatchEvent(new Event('input'))}; set2('#f-name','TEST offline'); set2('#f-company','TEST Store (ignore)'); set2('#f-email','test@example.com'); click('#send'); await sleep(3000); break;
     case 'footer': W.scrollTo(0,d.body.scrollHeight); break;
-    case 'toys': scrollTo('#cat-toys-games-party-favors'); break;
   }
-  await sleep(700);
+  await sleep(900);
   document.title='ready:'+state+':'+d.querySelectorAll('.card, .list tr[data-id]').length+':'+($('#cartcount')||{}).textContent;
 };
 f.src='../index.html';

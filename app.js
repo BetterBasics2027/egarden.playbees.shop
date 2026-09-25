@@ -1,9 +1,9 @@
-/* egarden.playbees.shop — catalog + order request. No build step, no framework. */
+/* Playbees wholesale catalog — catalog + order request. No build step, no framework. */
 (function () {
   "use strict";
   const CFG = window.EG_CONFIG || {};
   const CONTACT = CFG.CONTACT || {};
-  const LS_CART = "eg.cart.v1", LS_FORM = "eg.form.v1", LS_VIEW = "eg.view.v1", LS_OUTBOX = "eg.outbox.v1";
+  const LS_CART = "pbw.cart.v1", LS_FORM = "pbw.form.v1", LS_VIEW = "pbw.view.v1", LS_OUTBOX = "pbw.outbox.v1", LS_BRAND = "pbw.brand.v1";
 
   const $ = (s, r) => (r || document).querySelector(s);
   const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
@@ -12,7 +12,21 @@
   const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } };
   const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* private mode etc. */ } };
 
-  let DATA = null, ITEMS = [], BY = {}, CATS = [], CATBY = {};
+  // This site replaced the 67-item show catalog at the same address. Carry over what a buyer's phone
+  // saved there: unsent order requests (re-sent below), their details, and cart lines that still exist.
+  (function migrateShowCatalog() {
+    try {
+      const old = lsGet("eg.outbox.v1", []);
+      if (old.length) { lsSet(LS_OUTBOX, lsGet(LS_OUTBOX, []).concat(old)); localStorage.removeItem("eg.outbox.v1"); }
+      const f = lsGet("eg.form.v1", null);
+      if (f && !lsGet(LS_FORM, null)) lsSet(LS_FORM, f);
+      const c = lsGet("eg.cart.v1", null);
+      if (c && !lsGet(LS_CART, null)) lsSet(LS_CART, c);
+      localStorage.removeItem("eg.form.v1"); localStorage.removeItem("eg.cart.v1");
+    } catch (e) { /* storage unavailable */ }
+  })();
+
+  let DATA = null, ITEMS = [], BY = {}, CATS = [], CATBY = {}, BRANDS = [], BRAND = null;
   let cart = lsGet(LS_CART, {});
   let view = lsGet(LS_VIEW, "grid");
   let query = "";
@@ -31,13 +45,14 @@
     // drop cart lines that no longer exist
     Object.keys(cart).forEach((k) => { if (!BY[k] || !(cart[k] > 0)) delete cart[k]; });
 
-    $("#eyebrow").textContent = d.eyebrow || "2027 · Wholesale Pricing";
-    $("#subtitle").textContent = d.subtitle || "";
+    BRANDS = d.brands || [];
+    $("#eyebrow").textContent = d.eyebrow || "Wholesale Pricing";
     $("#note").textContent = d.note || "All prices in US dollars.";
-    $("#mosaic").innerHTML = (d.mosaic || []).map((m) => '<div style="background:' + esc(m.bg) + '"><img src="' + esc(m.image) + '" alt="" loading="lazy"></div>').join("");
-    $("#chips").innerHTML = CATS.map((c) => '<a class="chip" href="#cat-' + esc(c.id) + '" style="--c:' + c.c + ";--cd:" + c.cd + '"><i></i>' + esc(c.name) + " <small>" + c.count + "</small></a>").join("");
-    $("#navstrip").innerHTML = CATS.map((c) => '<a href="#cat-' + esc(c.id) + '" data-cat="' + esc(c.id) + '" style="--c:' + c.c + ";--cd:" + c.cd + ";--t:" + c.t + '"><i></i>' + esc(c.name) + "</a>").join("");
-    $("#q").placeholder = "Search " + ITEMS.length + " items… (name, PB number)";
+    // Hero brand switcher: both logos side by side; the selected one is full color, the other greyed out.
+    $("#herobrands").innerHTML = BRANDS.map((b) => '<button type="button" style="--bc:' + esc(b.color || "") + '" data-brand="' + esc(b.id) + '" aria-label="' + esc(b.name) + " catalog, " + b.count + ' items" aria-pressed="false"><img src="' + esc(b.logo) + '" alt="' + esc(b.name) + '"><span>' + b.count + " items</span></button>").join("");
+    // brand from ?brand=, then the last one viewed on this phone, then the first
+    const want = (new URLSearchParams(location.search).get("brand") || lsGet(LS_BRAND, "") || "").toLowerCase();
+    BRAND = BRANDS.find((b) => b.id === want) || BRANDS[0];
 
     const ct = CONTACT;
     $("#c-name").textContent = ct.name || "";
@@ -50,45 +65,93 @@
     $("#vgrid").setAttribute("aria-pressed", view === "grid");
     $("#vlist").setAttribute("aria-pressed", view === "list");
 
-    render();
+    applyBrand();
     syncCart();
     wire();
     flushOutbox();
   }
 
+  // ---------------------------------------------------------------- brand switch (header logos)
+  function applyBrand() {
+    const b = BRAND;
+    document.body.dataset.theme = b.id;
+    document.title = b.name + " Wholesale Catalog";
+    $$("#herobrands button").forEach((el) => el.setAttribute("aria-pressed", el.dataset.brand === b.id));
+    $("#toplogo-img").src = b.logo; $("#toplogo-img").alt = b.name;
+    $("#subtitle").textContent = b.subtitle || "";
+    [$("#pdfbtn"), $("#pdfbig")].forEach((a) => { a.href = b.pdf + "?v=" + (DATA.built || ""); a.setAttribute("download", b.pdf.split("/").pop()); a.setAttribute("aria-label", "Download the " + b.name + " catalog (PDF)"); });
+    $("#pdfbig-t").textContent = "Download the " + b.name + " catalog (PDF)";
+    $("#mosaic").innerHTML = (b.mosaic || []).map((m) => '<div style="background:' + esc(m.bg) + '"><img src="' + esc(m.image) + '" alt="" loading="lazy"></div>').join("");
+    const cats = CATS.filter((c) => c.counts[b.name]);
+    $("#chips").innerHTML = cats.map((c) => '<a class="chip" href="#cat-' + esc(c.id) + '" style="--c:' + c.c + ";--cd:" + c.cd + '"><i></i>' + esc(c.name) + " <small>" + c.counts[b.name] + "</small></a>").join("");
+    $("#navstrip").innerHTML = cats.map((c) => '<a href="#cat-' + esc(c.id) + '" data-cat="' + esc(c.id) + '" style="--c:' + c.c + ";--cd:" + c.cd + ";--t:" + c.t + '"><i></i>' + esc(c.name) + "</a>").join("");
+    $("#q").placeholder = "Search " + b.count + " " + b.name + " items… (name or SKU)";
+    render();
+  }
+
+  function setBrand(id) {
+    const b = BRANDS.find((x) => x.id === id);
+    if (!b) return;
+    const same = b === BRAND;
+    BRAND = b; lsSet(LS_BRAND, b.id);
+    try { const u = new URL(location.href); u.searchParams.set("brand", b.id); u.hash = ""; history.replaceState(null, "", u); } catch (e) {}
+    if (!same) applyBrand();
+    window.scrollTo({ top: 0, behavior: "auto" });
+  }
+
   // ---------------------------------------------------------------- render catalog
-  function matches(i, q) {
+  function hit(i, q) {
     if (!q) return true;
-    const hay = (i.uid || "new") + " " + i.name + " " + i.spec + " " + (CATBY[i.category] || {}).name;
+    const hay = (i.uid || "") + " " + i.name + " " + i.spec + " " + i.brand + " " + (CATBY[i.category] || {}).name;
     return q.split(/\s+/).every((w) => hay.toLowerCase().includes(w));
   }
+
+  function matches(i, q) { return i.brand === BRAND.name && hit(i, q); }
 
   function render() {
     const q = query.trim().toLowerCase();
     const main = $("#catalog");
     let html = "", any = false;
+    const navOn = {};
     CATS.forEach((c) => {
       const its = ITEMS.filter((i) => i.category === c.id && matches(i, q));
       if (!its.length) return;
-      any = true;
+      any = true; navOn[c.id] = its.length;
       html += '<section class="sec" id="cat-' + esc(c.id) + '" data-cat="' + esc(c.id) + '" style="--c:' + c.c + ";--cd:" + c.cd + ";--t:" + c.t + '">';
-      html += '<div class="band"><h2>' + esc(c.name) + "</h2><p>" + esc(c.blurb) + '</p><span class="cnt">' + its.length + (q ? " of " + c.count : "") + " items</span></div>";
+      html += '<div class="band"><h2>' + esc(c.name) + "</h2><p>" + esc(c.blurb) + '</p><span class="cnt">' + its.length + (q ? " of " + c.counts[BRAND.name] : "") + (its.length === 1 && !q ? " item" : " items") + "</span></div>";
       html += view === "list" ? listHtml(its) : '<div class="grid">' + its.map(cardHtml).join("") + "</div>";
       html += "</section>";
     });
-    main.innerHTML = any ? html : '<p class="empty">No items match “' + esc(query) + '”.</p>';
+    if (!any) {
+      const other = BRANDS.filter((b) => b !== BRAND).map((b) => ({ b, n: ITEMS.filter((i) => i.brand === b.name && hit(i, q)).length })).filter((x) => x.n);
+      html = '<p class="empty">No ' + esc(BRAND.name) + " items match “" + esc(query) + "”." +
+        other.map((x) => '<br><button class="ghost" data-brand="' + esc(x.b.id) + '">See ' + x.n + " in " + esc(x.b.name) + "</button>").join("") + "</p>";
+    }
+    main.innerHTML = html;
+    $$("#navstrip a").forEach((a) => { a.hidden = !navOn[a.dataset.cat]; });
     syncCart();
     observeSections();
   }
 
   function badgeHtml(i) {
-    return i.isNew ? '<span class="uid new">NEW</span>' : '<span class="uid">' + esc(i.uid) + "</span>";
+    return '<span class="uid">' + esc(i.uid) + "</span>";
   }
 
+  function photoHtml(i, lazy) {
+    if (i.image) return '<img src="' + esc(i.image) + '" alt="' + esc(i.name) + '"' + (lazy === false ? "" : ' loading="lazy"') + ">";
+    return '<div class="nophoto"><b>' + esc(i.brand) + "</b><span>Photo coming soon</span></div>";
+  }
+
+  function specLine(i) { return i.spec; }
+  function specBrand(i) { return i.brand + " · " + i.spec; }   // cart + order lines span both brands
+
+  // Every item shows both prices; a 1-piece pack's piece price equals its pack price.
+  function piece(i) { return i.piecePrice == null ? i.packPrice : i.piecePrice; }
+
   function priceHtml(i) {
-    if (i.onRequest) return '<div class="px req"><div><span>Wholesale price</span><b>Ask us · on request</b></div></div>';
+    if (i.onRequest) return '<div class="px req"><div><span>Pack price</span><b>Ask us</b></div><div class="pc"><span>Per Piece</span><b>Ask us</b></div></div>';
     return '<div class="px"><div><span>Pack price</span><b>' + money(i.packPrice) + "</b></div>" +
-      '<div class="pc"><span>Per Piece</span><b>' + money(i.piecePrice) + "</b></div></div>";
+      '<div class="pc"><span>Per Piece</span><b>' + money(piece(i)) + "</b></div></div>";
   }
 
   function actHtml(i) {
@@ -96,29 +159,33 @@
     if (!n) return '<div class="act"><button class="add" data-add="' + esc(i.id) + '">+ Add to order</button></div>';
     return '<div class="act"><div class="step" data-step="' + esc(i.id) + '"><button data-dec aria-label="Fewer packs">−</button>' +
       '<input type="number" inputmode="numeric" min="0" max="9999" value="' + n + '" aria-label="Packs"><button data-inc aria-label="More packs">+</button></div>' +
-      '<button class="add done" data-open="' + esc(i.id) + '">' + n + (n === 1 ? " pack" : " packs") + " ✓</button></div>";
+      '<button class="add done" data-open="' + esc(i.id) + '">' + unit(i, n) + " ✓</button></div>";
   }
 
   function cardHtml(i) {
     const n = cart[i.id] || 0;
     return '<article class="card' + (n ? " incart" : "") + '" data-id="' + esc(i.id) + '">' +
-      '<div class="ph" style="background:' + esc(i.bg) + '" data-open="' + esc(i.id) + '"><img src="' + esc(i.image) + '" alt="' + esc(i.name) + '" loading="lazy">' + badgeHtml(i) +
+      '<div class="ph" style="background:' + esc(i.bg) + '" data-open="' + esc(i.id) + '">' + photoHtml(i) + badgeHtml(i) +
       (n ? '<span class="qtybadge">' + n + "</span>" : "") + "</div>" +
-      '<div class="bd"><div class="nm" data-open="' + esc(i.id) + '">' + esc(i.name) + '</div><div class="sp">' + esc(i.spec) + "</div>" + priceHtml(i) + actHtml(i) + "</div></article>";
+      '<div class="bd"><div class="nm" data-open="' + esc(i.id) + '">' + esc(i.name) + '</div><div class="sp">' + esc(specLine(i)) + "</div>" + priceHtml(i) + actHtml(i) + "</div></article>";
   }
 
   function listHtml(its) {
-    return '<div class="list"><table><thead><tr><th></th><th>Product</th><th class="p">Pack</th><th class="p">Piece</th><th class="q">Packs</th></tr></thead><tbody>' +
+    return '<div class="list"><table><thead><tr><th></th><th>Product</th><th class="p">Pack</th><th class="p pc">Piece</th><th class="q">Qty</th></tr></thead><tbody>' +
       its.map((i) => {
         const n = cart[i.id] || 0;
-        return '<tr data-id="' + esc(i.id) + '"><td><img class="thumb" src="' + esc(i.image) + '" alt="" loading="lazy" style="background:' + esc(i.bg) + '" data-open="' + esc(i.id) + '"></td>' +
-          '<td class="n"><div class="nm" data-open="' + esc(i.id) + '"><small style="color:var(--cd);font-size:11px;margin-right:6px">' + (i.isNew ? "NEW" : esc(i.uid)) + "</small>" + esc(i.name) + '</div><div class="sp">' + esc(i.spec) + "</div></td>" +
-          (i.onRequest ? '<td class="p" colspan="2"><small>Ask us</small></td>' : '<td class="p">' + money(i.packPrice) + '</td><td class="p">' + money(i.piecePrice) + "</td>") +
+        const thumb = i.image ? '<img class="thumb" src="' + esc(i.image) + '" alt="" loading="lazy" style="background:' + esc(i.bg) + '" data-open="' + esc(i.id) + '">' : '<div class="thumb nophoto" data-open="' + esc(i.id) + '"></div>';
+        return '<tr data-id="' + esc(i.id) + '"><td>' + thumb + "</td>" +
+          '<td class="n"><div class="nm" data-open="' + esc(i.id) + '"><small style="color:var(--cd);font-size:11px;margin-right:6px">' + esc(i.uid) + "</small>" + esc(i.name) + '</div><div class="sp">' + esc(specLine(i)) + "</div></td>" +
+          (i.onRequest ? '<td class="p" colspan="2"><small>Ask us</small></td>'
+            : '<td class="p">' + money(i.packPrice) + '<small class="pcm">' + money(piece(i)) + '/pc</small></td><td class="p pc">' + money(piece(i)) + "</td>") +
           '<td class="q"><input type="number" inputmode="numeric" min="0" max="9999" placeholder="0" value="' + (n || "") + '" class="' + (n ? "has" : "") + '" data-qty="' + esc(i.id) + '" aria-label="Packs of ' + esc(i.name) + '"></td></tr>';
       }).join("") + "</tbody></table></div>";
   }
 
   // ---------------------------------------------------------------- cart state
+  function unit(i, n) { return n + (n === 1 ? " pack" : " packs"); }
+
   function setQty(id, n, opts) {
     n = Math.max(0, Math.min(9999, Math.floor(Number(n) || 0)));
     const was = cart[id] || 0;
@@ -126,7 +193,7 @@
     lsSet(LS_CART, cart);
     syncCart(id);
     if (!opts || !opts.quiet) {
-      if (n > was) { bump(); toast((n === 1 && !was ? "Added " : "") + BY[id].name + " · " + n + (n === 1 ? " pack" : " packs")); }
+      if (n > was) { bump(); toast((n === 1 && !was ? "Added " : "") + BY[id].name + " · " + unit(BY[id], n)); }
       else if (n === 0 && was) toast("Removed " + BY[id].name);
     }
   }
@@ -146,7 +213,7 @@
     $("#cartcount").textContent = t.packs;
     const bb = $("#bottombar");
     if (t.lines) {
-      $("#bb-packs").textContent = t.lines + (t.lines === 1 ? " item · " : " items · ") + t.packs + (t.packs === 1 ? " pack" : " packs");
+      $("#bb-packs").textContent = t.lines + (t.lines === 1 ? " item · " : " items · ") + t.packs + " qty";
       $("#bb-total").textContent = money(t.sub) + (t.req ? " + " + t.req + " on request" : "");
       bb.classList.add("show");
     } else bb.classList.remove("show");
@@ -184,8 +251,8 @@
     const i = BY[id]; if (!i) return;
     lastFocus = document.activeElement;
     const b = $("#sbody"); b.dataset.id = id;
-    b.innerHTML = '<div><div class="sph" style="background:' + esc(i.bg) + '"><img src="' + esc(i.image) + '" alt="' + esc(i.name) + '">' + badgeHtml(i) + "</div></div>" +
-      '<div><div class="snm">' + esc(i.name) + '</div><div class="ssp">' + esc(i.spec) + " · " + esc((CATBY[i.category] || {}).name || "") + "</div>" + priceHtml(i) + actHtml(i) +
+    b.innerHTML = '<div><div class="sph" style="background:' + esc(i.bg) + '">' + photoHtml(i, false) + badgeHtml(i) + "</div></div>" +
+      '<div><div class="snm">' + esc(i.name) + '</div><div class="ssp">' + esc(i.brand + " · " + i.spec) + " · " + esc((CATBY[i.category] || {}).name || "") + "</div>" + priceHtml(i) + actHtml(i) +
       (i.onRequest ? '<p class="msg" style="text-align:left">Add it with a quantity and we will quote it with your order.</p>' : "") + "</div>";
     $("#sheet").style.setProperty("--c", CATBY[i.category].c);
     $("#sheet").style.setProperty("--cd", CATBY[i.category].cd);
@@ -210,7 +277,7 @@
       if (el) { el.outerHTML = lineHtml(BY[onlyId]); $("#tot").outerHTML = totHtml(t); return; }
     }
     if (!ids.length) {
-      body.innerHTML = '<div class="done"><div class="big">🧸</div><h3>Nothing here yet</h3><p>Tap <b>+ Add to order</b> on any item, or type pack counts in the Price list view.</p><button class="ghost" id="d-browse">Browse the catalog</button></div>';
+      body.innerHTML = '<div class="done"><div class="big">🧸</div><h3>Nothing here yet</h3><p>Tap <b>+ Add to order</b> on any item, or type quantities in the Price list view.</p><button class="ghost" id="d-browse">Browse the catalog</button></div>';
       foot.innerHTML = "";
       return;
     }
@@ -221,15 +288,15 @@
   function lineHtml(i) {
     const n = cart[i.id] || 0;
     const c = CATBY[i.category];
-    return '<div class="line" data-id="' + esc(i.id) + '" style="--c:' + c.c + ";--cd:" + c.cd + '"><img src="' + esc(i.image) + '" alt="" style="background:' + esc(i.bg) + '" data-open="' + esc(i.id) + '">' +
-      '<div class="t"><div class="u">' + (i.isNew ? "NEW" : esc(i.uid)) + '</div><div class="nm">' + esc(i.name) + '</div><div class="sp">' + esc(i.spec) + "</div></div>" +
-      '<div class="r">' + (i.onRequest ? '<div class="money" style="color:var(--mut);font-size:12px">Ask us</div>' : '<div class="money">' + money(n * i.packPrice) + '</div><div class="each">' + money(i.packPrice) + " / pack</div>") +
+    return '<div class="line" data-id="' + esc(i.id) + '" style="--c:' + c.c + ";--cd:" + c.cd + '">' + (i.image ? '<img src="' + esc(i.image) + '" alt="" style="background:' + esc(i.bg) + '" data-open="' + esc(i.id) + '">' : '<div class="nophoto sm"></div>') +
+      '<div class="t"><div class="u">' + esc(i.uid) + '</div><div class="nm">' + esc(i.name) + '</div><div class="sp">' + esc(specBrand(i)) + "</div></div>" +
+      '<div class="r">' + (i.onRequest ? '<div class="money" style="color:var(--mut);font-size:12px">Ask us</div>' : '<div class="money">' + money(n * i.packPrice) + '</div><div class="each">' + money(i.packPrice) + " / pack · " + money(piece(i)) + " / pc</div>") +
       '<div class="step" data-step="' + esc(i.id) + '"><button data-dec aria-label="Fewer packs">−</button><input type="number" inputmode="numeric" min="0" max="9999" value="' + n + '" aria-label="Packs"><button data-inc aria-label="More packs">+</button></div>' +
       '<button class="rm" data-rm="' + esc(i.id) + '">remove</button></div></div>';
   }
 
   function totHtml(t) {
-    return '<div class="tot" id="tot"><div><span>' + t.lines + (t.lines === 1 ? " item" : " items") + "</span><span>" + t.packs + (t.packs === 1 ? " pack" : " packs") + "</span></div>" +
+    return '<div class="tot" id="tot"><div><span>' + t.lines + (t.lines === 1 ? " item" : " items") + "</span><span>" + t.packs + " total qty</span></div>" +
       (t.req ? '<div class="req"><span>Priced on request</span><span>' + t.req + (t.req === 1 ? " item" : " items") + "</span></div>" : "") +
       '<div class="big"><span>Subtotal</span><span>' + money(t.sub) + "</span></div>" +
       '<div class="req"><span>Excludes shipping' + (t.req ? " and on-request items" : "") + "</span><span></span></div></div>";
@@ -268,14 +335,14 @@
     const d = new Date(), p = (n) => String(n).padStart(2, "0");
     const a = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; let r = "";
     for (let k = 0; k < 4; k++) r += a[Math.floor(Math.random() * a.length)];
-    return "EG-" + String(d.getFullYear()).slice(2) + p(d.getMonth() + 1) + p(d.getDate()) + "-" + r;
+    return "PB-" + String(d.getFullYear()).slice(2) + p(d.getMonth() + 1) + p(d.getDate()) + "-" + r;
   }
 
   function payload(ref) {
     const t = totals();
     const lines = Object.keys(cart).map((id) => {
       const i = BY[id], n = cart[id];
-      return { id: i.id, uid: i.uid || "NEW", name: i.name, spec: i.spec, category: (CATBY[i.category] || {}).name, packs: n,
+      return { id: i.id, uid: i.uid, name: i.name, spec: specBrand(i), brand: i.brand, category: (CATBY[i.category] || {}).name, packs: n,
         packPrice: i.onRequest ? null : i.packPrice, piecePrice: i.onRequest ? null : i.piecePrice, lineTotal: i.onRequest ? null : +(n * i.packPrice).toFixed(2), onRequest: !!i.onRequest };
     });
     return { ref, site: CFG.SITE || location.host, submittedAt: new Date().toISOString(), name: form.name, company: form.company, email: form.email, phone: form.phone, notes: form.notes,
@@ -380,6 +447,8 @@
     document.addEventListener("keydown", (e) => { if (e.key === "Escape") hideAll(); });
 
     document.addEventListener("click", (e) => {
+      const bt = e.target.closest("button[data-brand]");
+      if (bt) { if (query) { query = ""; $("#q").value = ""; $("#qclr").hidden = true; } setBrand(bt.dataset.brand); return; }
       const t = e.target.closest("[data-add],[data-open],[data-inc],[data-dec],[data-rm],#send,#d-browse");
       if (!t) return;
       if (t.dataset.add !== undefined) { setQty(t.dataset.add, 1); return; }
